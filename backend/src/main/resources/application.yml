@@ -1,0 +1,83 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:sentinelflow}
+    username: ${DB_USER:sentinelflow}
+    password: ${DB_PASSWORD:sentinelflow}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        default_schema: public
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:sentinelflow-risk-workers}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      properties:
+        spring.json.trusted.packages: com.sentinelflow.kafka
+        spring.json.value.default.type: com.sentinelflow.kafka.TransactionProcessingEvent
+        spring.json.use.type.headers: false
+    listener:
+      ack-mode: manual_immediate
+      concurrency: 3
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,flyway
+  endpoint:
+    health:
+      show-details: when-authorized
+
+ml:
+  service:
+    url: ${ML_SERVICE_URL:http://localhost:8001}
+  client:
+    timeout: ${ML_CLIENT_TIMEOUT:5000}
+  expected:
+    model-name: ${ML_EXPECTED_MODEL_NAME:risk-model}
+    feature-schema-version: ${ML_EXPECTED_FEATURE_SCHEMA:fs-v1}
+
+sentinelflow:
+  kafka:
+    topic:
+      transactions: ${KAFKA_TRANSACTION_TOPIC:sentinelflow.transactions.process}
+      retry: ${KAFKA_RETRY_TOPIC:sentinelflow.transactions.process.retry}
+      dlq: ${KAFKA_DLQ_TOPIC:sentinelflow.transactions.process.dlq}
+      partitions: ${KAFKA_PARTITIONS:3}
+    producer:
+      acks: all
+      retries: 3
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:sentinelflow-risk-workers}
+      concurrency: 3
+
+logging:
+  level:
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+    org.flywaydb: INFO
+    com.sentinelflow.ml: DEBUG
+    com.sentinelflow.kafka: INFO
+    org.springframework.kafka: WARN
+    org.apache.kafka: WARN

@@ -1,0 +1,62 @@
+{
+  "model_name": "risk-model",
+  "model_version": "v1",
+  "feature_schema_version": "fs-v1",
+  "model_type": "LogisticRegression",
+  "algorithm": "logisticregression",
+  "data_source": "synthetic",
+  "dataset_size": 20000,
+  "fraud_rate": 0.15135,
+  "metrics_table": [
+    {
+      "model": "Baseline",
+      "val_accuracy": 0.8487,
+      "val_precision": 0.0,
+      "val_recall": 0.0,
+      "val_f1": 0.0,
+      "val_auc": 0.5
+    },
+    {
+      "model": "LogisticRegression",
+      "val_accuracy": 1.0,
+      "val_precision": 1.0,
+      "val_recall": 1.0,
+      "val_f1": 1.0,
+      "val_auc": 1.0
+    },
+    {
+      "model": "RandomForest",
+      "val_accuracy": 1.0,
+      "val_precision": 1.0,
+      "val_recall": 1.0,
+      "val_f1": 1.0,
+      "val_auc": 1.0
+    },
+    {
+      "model": "HistGradientBoosting",
+      "val_accuracy": 0.9997,
+      "val_precision": 1.0,
+      "val_recall": 0.9978,
+      "val_f1": 0.9989,
+      "val_auc": 0.9989
+    },
+    {
+      "model": "GradientBoosting",
+      "val_accuracy": 0.9997,
+      "val_precision": 1.0,
+      "val_recall": 0.9978,
+      "val_f1": 0.9989,
+      "val_auc": 0.9989
+    }
+  ],
+  "best": {
+    "model": "LogisticRegression",
+    "val_accuracy": 1.0,
+    "val_precision": 1.0,
+    "val_recall": 1.0,
+    "val_f1": 1.0,
+    "val_auc": 1.0
+  },
+  "test_auc": 1.0,
+  "saved_at": "2026-09-14T00:51:02.451332+00:00"
+}

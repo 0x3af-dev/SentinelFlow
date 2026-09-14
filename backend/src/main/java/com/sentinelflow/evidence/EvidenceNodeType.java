@@ -1,0 +1,7 @@
+package com.sentinelflow.evidence;
+
+public enum EvidenceNodeType {
+    TRANSACTION, USER, DEVICE, LOCATION, MERCHANT,
+    BEHAVIOR, FEATURE, MODEL_PREDICTION, RISK_FACTOR,
+    RULE_RESULT, POLICY, DECISION, INVESTIGATION, EVENT
+}
