@@ -320,6 +320,15 @@ transaction ◄── merchant (internal)
 
 ---
 
+## 20. Frontend Investigative Workspace (Phase 5)
+**Location:** `frontend/` (React + Vite + TypeScript)
+**Responsibility:** present the Phase 1-4 backend as an investigation product. It is a **pure consumer**: it renders persisted analytics, drives the policy-lab simulation form, submits counterfactual request bodies, and records investigation events — all against the public `/api` contract. It never derives, recomputes, or predicts any risk/decision/rules/policy result.
+**Owned:** the UI contract — routes, panels, forms, rendering, error presentation (`src/api/*` maps the backend DTOs one-to-one).
+**Does NOT Own:** risk scoring, rule evaluation, policy evaluation, decision logic, counterfactual computation, evidence building, ML inference, or any mutation of `Transaction`, `DecisionRecord`, `RiskScore`, `FeatureSnapshot`, `DecisionPolicy`, or evidence records. It has no repository/entity access of its own.
+**Boundary rules (spec §12):** no "if score >= threshold" style logic anywhere in TS; decision badges render the backend's decision verbatim; policy-lab thresholds are only validated for the form contract (`0 < review < block < 1`) before being sent — never used to decide; every simulation/counterfactual is labelled SIMULATED/COUNTERFACTUAL and carries the hypothetical disclaimer; actual vs hypothetical artifacts are visually distinct (Stamp components); absence of factors/rules/evidence is rendered as an explicit empty state, never as a safety claim.
+
+---
+
 ## Ownership Summary (Phase 2-4)
 
 | Domain | Owns | Does NOT Own |
@@ -365,6 +374,15 @@ transaction ◄── merchant (internal)
 | 4 | `analytics.policy` (Policy Lab) | Decision (DecisionRecord), Risk (FeatureSnapshot/RiskScore) | **implemented** |
 | 4 | `analytics.counterfactual` | Risk (FeatureSnapshot/RiskScore), Decision, ML client | **implemented** |
 | 4 | `investigation.service` (application facade) | Investigation, all analytics | **implemented** |
-| 4 | `policy-lab` UI / `investigation-ui` UI (Phase 3 doc) | — | **not built (roadmap: frontend skipped)** |
+| 4 | `policy-lab` UI / `investigation-ui` UI (Phase 3 doc) | — | **built as `frontend/` in Phase 5** |
+
+## Phase 5 Extensions
+
+| Phase | New Module | Integrates With | Status |
+|-------|------------|-----------------|--------|
+| 5 | `frontend` (React/Vite/TS) | All public `/api` controllers, dev proxy | **implemented** |
+| 5 | `TransactionOverview` (`com.sentinelflow.transaction.dto`) | Transaction | **implemented** |
+| 5 | `TransactionProcessController` (`com.sentinelflow.api`) | Pipeline (thin facade) | **implemented** |
+| 5 | `CounterfactualController.features` | CounterfactualFeatureRegistry | **implemented** |
 
 Each new module follows the same pattern: own entities, repositories, service layer, clear boundaries.

@@ -1,5 +1,6 @@
 package com.sentinelflow.api;
 
+import com.sentinelflow.analytics.counterfactual.CounterfactualFeatureRegistry;
 import com.sentinelflow.analytics.counterfactual.CounterfactualService;
 import com.sentinelflow.analytics.dto.CounterfactualRequest;
 import com.sentinelflow.analytics.dto.CounterfactualResponse;
@@ -23,9 +24,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class CounterfactualController {
 
     private final CounterfactualService counterfactualService;
+    private final CounterfactualFeatureRegistry featureRegistry;
 
-    public CounterfactualController(CounterfactualService counterfactualService) {
+    public CounterfactualController(CounterfactualService counterfactualService,
+                                     CounterfactualFeatureRegistry featureRegistry) {
         this.counterfactualService = counterfactualService;
+        this.featureRegistry = featureRegistry;
+    }
+
+    /** Supported editable features (name, description, min, max, integral) for the UI. */
+    @GetMapping("/features")
+    public ResponseEntity<List<CounterfactualFeatureRegistry.FeatureSpec>> features() {
+        return ResponseEntity.ok(featureRegistry.list());
     }
 
     @PostMapping

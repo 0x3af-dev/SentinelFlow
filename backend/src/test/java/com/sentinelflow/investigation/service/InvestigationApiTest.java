@@ -192,4 +192,29 @@ class InvestigationApiTest {
         assertThatThrownBy(() -> investigationsApi.summary(UUID.randomUUID()))
                 .isInstanceOf(AnalyticsNotFoundException.class);
     }
+
+    @Test
+    void listFiltersByTransactionReference() {
+        InvestigationMetadata meta = investigationsApi.create(new CreateInvestigationRequest(
+                txn.getTransactionReference(), "HIGH", "analyst-1", null));
+        List<InvestigationMetadata> filtered = investigationsApi.list(txn.getTransactionReference());
+        assertThat(filtered).hasSize(1);
+        assertThat(filtered.get(0).id()).isEqualTo(meta.id());
+        assertThatThrownBy(() -> investigationsApi.list("txn-other"))
+                .isInstanceOf(AnalyticsNotFoundException.class);
+    }
+
+    @Test
+    void listAllIsOrderedByOpenedAtDescAndRejectsUnknownTransaction() {
+        InvestigationMetadata first = investigationsApi.create(new CreateInvestigationRequest(
+                txn.getTransactionReference(), "LOW", "a", null));
+        InvestigationMetadata second = investigationsApi.create(new CreateInvestigationRequest(
+                txn.getTransactionReference(), "HIGH", "b", null));
+        List<InvestigationMetadata> all = investigationsApi.list(null);
+        assertThat(all).extracting(InvestigationMetadata::investigationReference)
+                .contains(second.investigationReference(), first.investigationReference());
+        assertThat(all.get(0).openedAt()).isAfterOrEqualTo(all.get(1).openedAt());
+        assertThatThrownBy(() -> investigationsApi.list("TXN-MISSING"))
+                .isInstanceOf(AnalyticsNotFoundException.class);
+    }
 }

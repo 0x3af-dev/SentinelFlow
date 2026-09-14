@@ -1,6 +1,8 @@
 package com.sentinelflow.analytics.counterfactual;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
@@ -52,5 +54,9 @@ public class CounterfactualFeatureRegistry {
 
     public boolean isSupported(String name) {
         return FEATURES.containsKey(name);
+    }
+
+    public List<FeatureSpec> list() {
+        return List.copyOf(new ArrayList<>(FEATURES.values()));
     }
 }

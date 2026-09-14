@@ -59,7 +59,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * The spec's end-to-end story (txn-demo-001):
+ * The spec's end-to-end story, exercised on this test's own isolated data
+ * (V11 demo fixtures seed txn-demo-001, so the test uses a separate reference):
  *   production decision REVIEW (score 0.72)
  *   policy simulation with review threshold 0.75 flips it to ALLOW
  *   counterfactual raising the amount flips the hypothetical decision to BLOCK
@@ -69,7 +70,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 class Phase4EndToEndTest {
 
-    private static final String DEMO_REF = "txn-demo-001";
+    private static final String DEMO_REF = "txn-p4-e2e-001";
     private static final Set<String> DISAGREEMENT_CATEGORIES = Set.of(
             "ML_HIGH_RULE_HIGH", "ML_HIGH_RULE_LOW", "ML_LOW_RULE_HIGH", "ML_LOW_RULE_LOW");
 

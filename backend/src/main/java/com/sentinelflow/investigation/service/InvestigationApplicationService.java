@@ -88,6 +88,21 @@ public class InvestigationApplicationService {
     }
 
     @Transactional(readOnly = true)
+    public List<InvestigationMetadata> list(String transactionReference) {
+        List<Investigation> investigations;
+        if (transactionReference == null || transactionReference.isBlank()) {
+            investigations = investigationRepository.findAllByOrderByOpenedAtDesc();
+        } else {
+            Transaction txn = transactionRepository.findByTransactionReference(transactionReference.trim())
+                    .orElseThrow(() -> new AnalyticsNotFoundException("Transaction not found: " + transactionReference));
+            investigations = investigationRepository.findByTransactionIdOrderByOpenedAtDesc(txn.getId());
+        }
+        return investigations.stream()
+                .map(i -> toMetadata(i, eventRepository.findByInvestigationId(i.getId()).size()))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<TimelineEntry> timeline(UUID investigationId) {
         Investigation investigation = requireInvestigation(investigationId);
         return eventRepository.findByInvestigationId(investigationId).stream()
