@@ -346,7 +346,31 @@ transaction ◄── merchant (internal)
 
 ---
 
-## Ownership Summary (Phase 2-5)
+## 22. Security Domain (Phase 8)
+**Package:** `com.sentinelflow.security`
+**Responsibility:** Stateless authentication, role-based access control, object-level authorization, append-only audit logging, login rate limiting, and AI safety governance. Purely cross-cutting — owns no transaction-domain entities.
+**Owned:**
+- `SecurityUser` + `SecurityUserRepository` (table `security_users`, separate from transaction `users`)
+- `JwtTokenService` (HS256, JJWT 0.12.6), `JwtAuthenticationWebFilter`, `InternalApiKeyWebFilter`
+- `AuthController` (`POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`)
+- `LoginRateLimiter` (in-memory per-username, configurable max/window/cooldown)
+- `AuditEventService` (append-only `audit_logs`; actor from JWT principal)
+- `SecurityProperties` (jwt-secret, jwt-ttl-seconds, internal-api-key, seed-demo-users, rate-limit)
+- `SecurityConfig` (RBAC path-matcher matrix; blanket `/api/investigations/**` → ANALYST/INVESTIGATOR/ADMIN)
+- `SecurityDemoUsersInitializer` (seeds 4 demo users: analyst/investigator/operator/admin)
+- Test helper: `TestAuth` (real login → JWT → authenticated WebTestClient)
+**Depends on:** Spring Security 6, BCrypt, JJWT, PostgreSQL (via `security_users`); read-only reference to investigation context for object auth
+**Does NOT Own:** transaction processing, risk scoring, policy evaluation, decision making, evidence creation, ML inference, AI generation, Kafka, any business-domain entities
+**Boundary rules:**
+- Authentication is stateless; `NoOpServerSecurityContextRepository` prevents session fixation
+- Actor derivation: all mutating endpoints override client-supplied `requestedBy`/`actorReference` with JWT principal
+- AI safety: `PromptAssembler` untrusted-data fence; `InvestigationAiTools` 4 read-only tools; `ExplanationValidator` evidence grounding + action-language rejection; `AiInvestigationRun` logged BEFORE service call
+- Immutable lineage: no UPDATE/DELETE on `transactions`, `decision_records`, `risk_scores`, `feature_snapshots`, `evidence_nodes/edges`, `decision_policies`, `audit_logs`, `ai_investigation_runs`
+- Secrets via env vars (`JWT_SECRET`, `INTERNAL_API_KEY`); test values only in `application-test.yml`
+
+---
+
+## Ownership Summary (Phase 2-8)
 
 | Domain | Owns | Does NOT Own |
 |--------|------|--------------|
@@ -361,6 +385,7 @@ transaction ◄── merchant (internal)
 | Investigation App (P4) | Read-only analytical workflow | Transaction/decision mutation |
 | Frontend (P5) | Presentation contract | Any risk/decision/policy logic |
 | AI Investigator (P6) | Evidence-grounded explanation + audit trail | Decisions, policy, scoring, mutation |
+| Security (P8) | Auth, RBAC, object auth, audit, rate limit, AI governance | Transaction/risk/policy/decision logic, mutation |
 
 **Critical Separations:**
 - ML does not own final decisions
@@ -412,5 +437,14 @@ transaction ◄── merchant (internal)
 | 6 | `ai_investigation_runs` (Flyway V12) | Investigations (ON DELETE CASCADE) | **implemented** |
 | 6 | `AiInvestigationController` (`com.sentinelflow.api`) | `AiInvestigationService` | **implemented** |
 | 6 | `AiInvestigationPanel` (`frontend/src/components/ai`) | `investigationsApi.explain` / `explanationRuns` | **implemented** |
+
+## Phase 8 Extensions
+
+| Phase | New Module | Integrates With | Status |
+|-------|------------|-----------------|--------|
+| 8 | `security` (auth, RBAC, audit, rate limit, AI governance) | All `/api` controllers (cross-cutting), `security_users` (Flyway V13), `audit_logs`, `ai_investigation_runs` | **implemented** |
+| 8 | `AuthController` (`com.sentinelflow.api`) | `SecurityUserRepository`, `JwtTokenService`, `LoginRateLimiter`, `AuditEventService` | **implemented** |
+| 8 | `SecurityConfig` (RBAC matrix) | Spring Security 6, `InternalApiKeyWebFilter` | **implemented** |
+| 8 | Frontend `AuthProvider`, `LoginPage`, `RequireAuth/RequireRole`, `client.ts` bearer | React Router, `authApi`, `sessionStorage` | **implemented** |
 
 Each new module follows the same pattern: own entities, repositories, service layer, clear boundaries.

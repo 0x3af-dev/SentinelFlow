@@ -9,6 +9,7 @@ import com.sentinelflow.identity.UserRepository;
 import com.sentinelflow.identity.UserStatus;
 import com.sentinelflow.ml.MlInferenceClient;
 import com.sentinelflow.ml.MlInferenceRequest;
+import com.sentinelflow.security.TestAuth;
 import com.sentinelflow.shared.dto.MlPrediction;
 import com.sentinelflow.transaction.Merchant;
 import com.sentinelflow.transaction.MerchantRepository;
@@ -35,9 +36,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 /**
  * Phase 7 operational surfaces: liveness/readiness health, the read-only
  * /api/operations endpoints, scheduled-backlog numbers and Micrometer metric
- * exposure. The test context intentionally runs with kafka.enabled=false and
- * ai.enabled=false, so kafka/ai probe statuses are DISABLED — proving the
- * application stays readable (HEALTHY/UP) without either dependency.
+ * exposure. Phase 8 adds authorization: operations endpoints require
+ * OPERATOR/ADMIN, internal enqueue requires the internal API key, and the
+ * public pipeline trigger requires an authenticated business role.
  */
 @SpringBootTest(properties = {
         "management.endpoint.health.show-details=always",
@@ -71,8 +72,16 @@ class OperationalApiTest {
     }
 
     @Test
-    void operationalSummaryReportsDependenciesAndCounters() {
+    void unauthenticatedOperationsAreRejectedWith401() {
         web.get().uri("/api/operations/summary").exchange()
+                .expectStatus().isUnauthorized()
+                .expectBody().jsonPath("$.code").isEqualTo("AUTHENTICATION_REQUIRED");
+    }
+
+    @Test
+    void operationalSummaryReportsDependenciesAndCounters() {
+        WebTestClient authed = TestAuth.asOperator(web);
+        authed.get().uri("/api/operations/summary").exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.dependencies.postgres.status").isEqualTo("HEALTHY")
@@ -87,10 +96,13 @@ class OperationalApiTest {
     @Test
     void enqueuedTransactionAppearsInOutboxDashboard() {
         String tx = newTransaction();
-        web.post().uri("/internal/kafka/transactions/{ref}/enqueue", tx).exchange()
+        web.post().uri("/internal/kafka/transactions/{ref}/enqueue", tx)
+                .header("X-Internal-Api-Key", "test-internal-key")
+                .exchange()
                 .expectStatus().isAccepted();
 
-        web.get().uri("/api/operations/outbox").exchange()
+        WebTestClient authed = TestAuth.asOperator(web);
+        authed.get().uri("/api/operations/outbox").exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.pending").isNumber();
@@ -98,7 +110,8 @@ class OperationalApiTest {
 
     @Test
     void integrityChecksAreHealthyOnCleanSchema() {
-        web.get().uri("/api/operations/integrity").exchange()
+        WebTestClient authed = TestAuth.asOperator(web);
+        authed.get().uri("/api/operations/integrity").exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.healthyAll").isEqualTo(true)
@@ -107,11 +120,12 @@ class OperationalApiTest {
 
     @Test
     void dlqAndAttemptsEndpointsAreReadable() {
-        web.get().uri("/api/operations/dlq").exchange().expectStatus().isOk()
+        WebTestClient authed = TestAuth.asOperator(web);
+        authed.get().uri("/api/operations/dlq").exchange().expectStatus().isOk()
                 .expectBody().jsonPath("$.count").isNumber();
-        web.get().uri("/api/operations/attempts").exchange().expectStatus().isOk()
+        authed.get().uri("/api/operations/attempts").exchange().expectStatus().isOk()
                 .expectBody().jsonPath("$.stuckThresholdMinutes").isNumber();
-        web.get().uri("/api/operations").exchange().expectStatus().isOk()
+        authed.get().uri("/api/operations").exchange().expectStatus().isOk()
                 .expectBody().jsonPath("$.status").isEqualTo("available");
     }
 
@@ -122,12 +136,14 @@ class OperationalApiTest {
                 List.of(new MlPrediction.RiskFactorDto("MODEL_ELEVATED_RISK", "elevated risk", "MEDIUM", Map.of("risk_score", 0.5))),
                 Map.of("model_type", "mock"), 10, Instant.now()));
 
-        web.post().uri("/api/transactions/{ref}/process", newTransaction()).exchange()
+        WebTestClient analystClient = TestAuth.asAnalyst(web);
+        analystClient.post().uri("/api/transactions/{ref}/process", newTransaction()).exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.decision").exists();
 
-        web.get().uri("/actuator/metrics/sentinelflow.transaction.processing.success.total").exchange()
+        WebTestClient operatorClient = TestAuth.asOperator(web);
+        operatorClient.get().uri("/actuator/metrics/sentinelflow.transaction.processing.success.total").exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.measurements[0].value").isNumber();

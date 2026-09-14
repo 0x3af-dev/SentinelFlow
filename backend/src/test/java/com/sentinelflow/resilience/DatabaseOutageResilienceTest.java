@@ -9,6 +9,7 @@ import com.sentinelflow.identity.UserRepository;
 import com.sentinelflow.identity.UserStatus;
 import com.sentinelflow.ml.MlInferenceClient;
 import com.sentinelflow.ml.MlInferenceRequest;
+import com.sentinelflow.security.TestAuth;
 import com.sentinelflow.shared.dto.MlPrediction;
 import com.sentinelflow.transaction.Merchant;
 import com.sentinelflow.transaction.MerchantRepository;
@@ -71,11 +72,12 @@ class DatabaseOutageResilienceTest {
                 Map.of("model_type", "mock"), 10, Instant.now()));
         String reference = newTransaction();
         long decisionsBefore = decisions();
+        WebTestClient analyst = TestAuth.asAnalyst(web);
 
         try (Connection held = dataSource.getConnection()) {
             // The pool is exhausted: every further acquisition times out after 1s,
             // mimicking an unavailable database without touching the container.
-            web.post().uri("/api/transactions/{ref}/process", reference).exchange()
+            analyst.post().uri("/api/transactions/{ref}/process", reference).exchange()
                     .expectStatus().isEqualTo(HttpStatus.SERVICE_UNAVAILABLE)
                     .expectBody()
                     .jsonPath("$.code").isEqualTo("DEPENDENCY_UNAVAILABLE");
@@ -85,7 +87,7 @@ class DatabaseOutageResilienceTest {
         assertThat(decisions()).isEqualTo(decisionsBefore);
 
         // Once the connection is back, the same request succeeds and persists a decision.
-        web.post().uri("/api/transactions/{ref}/process", reference).exchange()
+        analyst.post().uri("/api/transactions/{ref}/process", reference).exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.decision").exists();

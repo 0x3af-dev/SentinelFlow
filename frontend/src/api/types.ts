@@ -4,6 +4,32 @@
  * re-implements backend logic, it only consumes these contracts.
  */
 
+// ── Auth ─────────────────────────────────────────────────────────────────────
+export type Role = 'ANALYST' | 'INVESTIGATOR' | 'OPERATOR' | 'ADMIN'
+
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+export interface LoginResponse {
+  token: string
+  username: string
+  role: Role
+  expiresInSeconds: number
+}
+
+export interface AuthUser {
+  username: string
+  role: Role
+}
+
+export interface MeResponse {
+  username: string
+  role: Role
+}
+
+// ── Domain ───────────────────────────────────────────────────────────────────
 export type Decision = 'ALLOW' | 'REVIEW' | 'BLOCK'
 
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'

@@ -1,4 +1,5 @@
 import type { ApiError } from './types'
+import { clearSession, getToken } from '@/auth/session'
 
 /**
  * Structured API errors. The backend returns `{ code, message, details }` and
@@ -85,13 +86,18 @@ async function parseError(response: Response): Promise<ApiRequestError> {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body != null) headers.set('Content-Type', 'application/json')
+  const token = getToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
   let response: Response
   try {
     response = await fetch(`${BASE_URL}${path}`, { ...init, headers })
   } catch (cause) {
     throw new ApiNetworkError(cause)
   }
-  if (!response.ok) throw await parseError(response)
+  if (!response.ok) {
+    if (response.status === 401) clearSession()
+    throw await parseError(response)
+  }
   if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }

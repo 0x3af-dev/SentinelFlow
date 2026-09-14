@@ -3,6 +3,7 @@ package com.sentinelflow.ai;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sentinelflow.ai.gateway.AiGateway;
+import com.sentinelflow.security.TestAuth;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -21,7 +22,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * With the default configuration (sentinelflow.ai.enabled=false) the AI
  * investigator fails fast with a controlled 503/AI_UNAVAILABLE and the
  * application still boots with no OpenAI beans, no API key, and no LLM on any
- * production path.
+ * production path. Phase 8: the endpoint additionally requires an
+ * authenticated ANALYST/INVESTIGATOR/ADMIN; an unauthenticated call is 401
+ * (authorization happens before capability gating).
  */
 @SpringBootTest
 @AutoConfigureWebTestClient
@@ -39,8 +42,20 @@ class AiInvestigationDisabledApiTest {
     ObjectProvider<AiGateway> gatewayProvider;
 
     @Test
-    void explanationRequestWhenDisabledReturns503AiUnavailable() {
+    void unauthenticatedExplanationRequestIsRejectedWith401() {
         webTestClient.post()
+                .uri("/api/investigations/{id}/explanations", UUID.randomUUID())
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"requestType\":\"SUMMARIZE\"}")
+                .exchange()
+                .expectStatus().isUnauthorized()
+                .expectBody().jsonPath("$.code").isEqualTo("AUTHENTICATION_REQUIRED");
+    }
+
+    @Test
+    void explanationRequestWhenDisabledReturns503AiUnavailable() {
+        WebTestClient authed = TestAuth.asAnalyst(webTestClient);
+        authed.post()
                 .uri("/api/investigations/{id}/explanations", UUID.randomUUID())
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("{\"requestType\":\"SUMMARIZE\"}")
@@ -57,7 +72,8 @@ class AiInvestigationDisabledApiTest {
 
     @Test
     void invalidRequestBodyReturns400() {
-        webTestClient.post()
+        WebTestClient authed = TestAuth.asAnalyst(webTestClient);
+        authed.post()
                 .uri("/api/investigations/{id}/explanations", UUID.randomUUID())
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("{\"freeFormQuestion\":\"surplus field\"}")

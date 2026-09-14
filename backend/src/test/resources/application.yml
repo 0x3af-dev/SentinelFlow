@@ -1,14 +1,23 @@
 sentinelflow:
   kafka:
     enabled: false
+  security:
+    # Fixed dev-only JWT secret for deterministic tests. Never use outside the
+    # test environment: a deployment MUST override this via the env variable.
+    jwt-secret: test-only-secret-do-not-use-in-production-a1b2c3d4e5f6a1b2c3d4
+    jwt-ttl-seconds: 3600
+    internal-api-key: test-internal-key
+    seed-demo-users: true
+    rate-limit:
+      max-attempts: 100
+      window-seconds: 60
+      cooldown-seconds: 0
+    cors-allowed-origins: http://localhost:5173
 
 spring:
   kafka:
     listener:
       auto-startup: false
-  # Keep the Spring AI OpenAI auto-configurations out of every test context: the
-  # Phase 6 gateway owns ChatClient construction and these otherwise demand a
-  # spring.ai.openai.api-key at startup.
   autoconfigure:
     exclude:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration

@@ -75,6 +75,9 @@ public class AiInvestigationRun {
     @Column(name = "error_message")
     private String errorMessage;
 
+    @Column(name = "actor_username", length = 64)
+    private String actorUsername;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -94,6 +97,7 @@ public class AiInvestigationRun {
         this.response = builder.response;
         this.errorCode = builder.errorCode;
         this.errorMessage = builder.errorMessage;
+        this.actorUsername = builder.actorUsername;
         this.createdAt = Instant.now();
     }
 
@@ -153,6 +157,10 @@ public class AiInvestigationRun {
         return errorMessage;
     }
 
+    public String getActorUsername() {
+        return actorUsername;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -170,6 +178,7 @@ public class AiInvestigationRun {
         private Map<String, Object> response;
         private String errorCode;
         private String errorMessage;
+        private String actorUsername;
 
         public Builder investigationId(UUID investigationId) {
             this.investigationId = investigationId;
@@ -228,6 +237,11 @@ public class AiInvestigationRun {
 
         public Builder errorMessage(String errorMessage) {
             this.errorMessage = errorMessage;
+            return this;
+        }
+
+        public Builder actorUsername(String actorUsername) {
+            this.actorUsername = actorUsername;
             return this;
         }
 

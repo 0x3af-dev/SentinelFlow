@@ -75,20 +75,29 @@ public class AiInvestigationService {
         this.metrics = metrics;
     }
 
-    public InvestigationExplanation explain(UUID investigationId, InvestigationExplanationRequest request) {
+    /** Actor-aware explanation: records the authenticated principal on the audit run. */
+    public InvestigationExplanation explain(UUID investigationId,
+                                            InvestigationExplanationRequest request,
+                                            String actorUsername) {
         metrics.aiRequested();
         requireEnabled();
         long started = System.nanoTime();
         String correlationId = UUID.randomUUID().toString();
         return Md.run(Md.of(Md.OP_AI, correlationId, null, null, investigationId.toString()), () -> {
             try {
-                return doExplain(investigationId, request, correlationId, started);
+                InvestigationExplanation answer = doExplain(investigationId, request, correlationId, started);
+                persistSuccess(investigationId, request, correlationId, started, gatewayProvider.getIfAvailable(), answer, actorUsername);
+                return answer;
             } catch (RuntimeException failure) {
-                String code = persistFailure(investigationId, request, correlationId, started, failure);
+                String code = persistFailure(investigationId, request, correlationId, started, failure, actorUsername);
                 metrics.aiFailed(code, System.nanoTime() - started);
                 throw translate(failure);
             }
         });
+    }
+
+    public InvestigationExplanation explain(UUID investigationId, InvestigationExplanationRequest request) {
+        return explain(investigationId, request, null);
     }
 
     private InvestigationExplanation doExplain(UUID investigationId, InvestigationExplanationRequest request,
@@ -119,7 +128,6 @@ public class AiInvestigationService {
             throw new AiResponseInvalidException(
                     "AI response failed validation: " + String.join("; ", validation.violations()));
         }
-        persistSuccess(investigationId, request, correlationId, started, gateway, answer);
         metrics.aiSucceeded(System.nanoTime() - started, toolCallBudget.currentTotal());
         return answer;
     }
@@ -183,7 +191,7 @@ public class AiInvestigationService {
     }
 
     private String persistFailure(UUID investigationId, InvestigationExplanationRequest request, String correlationId,
-                                long startedNanos, RuntimeException failure) {
+                                long startedNanos, RuntimeException failure, String actorUsername) {
         String code;
         String message;
         if (failure instanceof AiProviderResponseException e) {
@@ -202,12 +210,13 @@ public class AiInvestigationService {
             code = "AI_UNEXPECTED";
             message = truncate(failure.getMessage());
         }
-        logFailedRun(investigationId, request, correlationId, startedNanos, code, message);
+        logFailedRun(investigationId, request, correlationId, startedNanos, code, message, actorUsername);
         return code;
     }
 
 private void persistSuccess(UUID investigationId, InvestigationExplanationRequest request, String correlationId,
-                            long startedNanos, AiGateway gateway, InvestigationExplanation answer) {
+                            long startedNanos, AiGateway gateway, InvestigationExplanation answer,
+                            String actorUsername) {
         AiInvestigationRun run = AiInvestigationRun.builder()
                 .investigationId(investigationId)
                 .requestType(request.requestType())
@@ -218,6 +227,7 @@ private void persistSuccess(UUID investigationId, InvestigationExplanationReques
                 .toolCallCount(toolCallBudget.currentTotal())
                 .latencyMs(msSince(startedNanos))
                 .correlationId(correlationId)
+                .actorUsername(actorUsername)
                 .response(objectMapper.convertValue(answer, new TypeReference<>() {
                 }))
                 .build();
@@ -225,7 +235,7 @@ private void persistSuccess(UUID investigationId, InvestigationExplanationReques
     }
 
     private void logFailedRun(UUID investigationId, InvestigationExplanationRequest request, String correlationId,
-                              long startedNanos, String code, String message) {
+                              long startedNanos, String code, String message, String actorUsername) {
         AiInvestigationRun run = AiInvestigationRun.builder()
                 .investigationId(investigationId)
                 .requestType(request.requestType())
@@ -236,6 +246,7 @@ private void persistSuccess(UUID investigationId, InvestigationExplanationReques
                 .correlationId(correlationId)
                 .errorCode(code)
                 .errorMessage(message)
+                .actorUsername(actorUsername)
                 .build();
         runRepository.save(run);
     }
