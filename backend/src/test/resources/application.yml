@@ -6,3 +6,14 @@ spring:
   kafka:
     listener:
       auto-startup: false
+  # Keep the Spring AI OpenAI auto-configurations out of every test context: the
+  # Phase 6 gateway owns ChatClient construction and these otherwise demand a
+  # spring.ai.openai.api-key at startup.
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration

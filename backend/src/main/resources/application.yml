@@ -18,6 +18,27 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: true
     validate-on-migrate: true
+  # Spring AI chat model auto-configuration is OFF. The Phase 6 AI gateway wires
+  # an OpenAI-compatible ChatClient only when sentinelflow.ai.enabled=true, so the
+  # application boots with no API key and no LLM on the classpath ever enters the
+  # transaction processing path. The OpenAI auto-configurations are excluded
+  # explicitly because they otherwise demand a spring.ai.openai.api-key at startup
+  # regardless of the sentinelflow.ai.enabled flag.
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration
+  ai:
+    model:
+      chat: none
+  # Propagate genuine tool execution errors back to the caller (and to our budget
+  # guard) instead of feeding them into the model as ordinary tool responses.
+  ai.tools:
+    throw-exception-on-error: true
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
@@ -71,6 +92,26 @@ sentinelflow:
     consumer:
       group-id: ${KAFKA_CONSUMER_GROUP:sentinelflow-risk-workers}
       concurrency: 3
+  ai:
+    # Off by default: the AI investigation capability boots disabled and the LLM
+    # never participates in transaction processing. Set ENABLE to true and provide
+    # an API key plus base URL to any OpenAI-compatible endpoint to activate it.
+    enabled: ${AI_INVESTIGATOR_ENABLED:false}
+    provider: ${AI_PROVIDER:openai-compatible}
+    model: ${AI_MODEL:gpt-4o-mini}
+    api-key: ${AI_API_KEY:}
+    base-url: ${AI_BASE_URL:https://api.openai.com/v1}
+    timeout-seconds: ${AI_TIMEOUT_SECONDS:30}
+    max-tool-calls: ${AI_MAX_TOOL_CALLS:12}
+    max-same-tool-calls: ${AI_MAX_SAME_TOOL_CALLS:3}
+    max-result-rows: ${AI_MAX_RESULT_ROWS:50}
+    max-evidence-nodes: ${AI_MAX_EVIDENCE_NODES:100}
+    max-history-events: ${AI_MAX_HISTORY_EVENTS:100}
+    max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:1500}
+    max-observations: ${AI_MAX_OBSERVATIONS:20}
+    max-findings: ${AI_MAX_FINDINGS:20}
+    max-evidence-references: ${AI_MAX_EVIDENCE_REFERENCES:100}
+    max-recommended-evidence: ${AI_MAX_RECOMMENDED_EVIDENCE:10}
 
 logging:
   level:

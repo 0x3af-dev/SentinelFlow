@@ -89,6 +89,11 @@ body {
   border-color: color-mix(in srgb, #c084fc 40%, transparent);
 }
 
+.ai-stamp {
+  color: #34d399;
+  border-color: color-mix(in srgb, #34d399 40%, transparent);
+}
+
 /* Visible focus — keyboard users must never lose the cursor. */
 :where(a, button, input, textarea, select, [tabindex]):focus-visible {
   outline: 2px solid #7dd3fc;

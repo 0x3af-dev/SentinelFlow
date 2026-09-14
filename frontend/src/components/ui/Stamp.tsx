@@ -1,4 +1,4 @@
-export type ArtifactKind = 'actual' | 'simulation' | 'counterfactual' | 'historical' | 'replay'
+export type ArtifactKind = 'actual' | 'simulation' | 'counterfactual' | 'historical' | 'replay' | 'ai'
 
 const kindClass: Record<ArtifactKind, string> = {
   actual: 'actual-stamp',
@@ -6,6 +6,7 @@ const kindClass: Record<ArtifactKind, string> = {
   counterfactual: 'counterfactual-stamp',
   historical: 'historical-stamp',
   replay: 'historical-stamp',
+  ai: 'ai-stamp',
 }
 
 const kindLabel: Record<ArtifactKind, string> = {
@@ -14,6 +15,7 @@ const kindLabel: Record<ArtifactKind, string> = {
   counterfactual: 'Counterfactual',
   historical: 'Historical reconstruction',
   replay: 'Historical reconstruction',
+  ai: 'AI analysis',
 }
 
 /**

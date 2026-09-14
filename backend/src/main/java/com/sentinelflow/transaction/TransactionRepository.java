@@ -46,4 +46,6 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     Optional<Transaction> findFirstByUserIdOrderByTransactionTimestampDesc(UUID userId);
 
     Optional<Transaction> findFirstByUser_IdOrderByTransactionTimestampDesc(UUID userId);
+
+    List<Transaction> findByUser_IdOrderByTransactionTimestampDesc(UUID userId);
 }

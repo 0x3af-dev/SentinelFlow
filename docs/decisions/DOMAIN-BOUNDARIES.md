@@ -5,6 +5,8 @@ This document defines the ownership boundaries between modules in the modular mo
 **Phase 2 adds:** enrichment, feature, ml, rule, policy, pipeline, evidence service boundaries (see below).
 **Phase 3 adds:** Kafka messaging/outbox boundary (§17) — transport only, no business logic.
 **Phase 4 adds:** analytics (replay, policy lab, counterfactual, disagreement, evidence graph) + read-only investigation application boundary (§18, §19).
+**Phase 5 adds:** React investigative workspace — pure consumer of the analytics API (§20).
+**Phase 6 adds:** AI investigator — evidence-grounded, read-only LLM assistant gated by strict tool budgets, validation, and audit trail (§21).
 
 ---
 
@@ -327,9 +329,24 @@ transaction ◄── merchant (internal)
 **Does NOT Own:** risk scoring, rule evaluation, policy evaluation, decision logic, counterfactual computation, evidence building, ML inference, or any mutation of `Transaction`, `DecisionRecord`, `RiskScore`, `FeatureSnapshot`, `DecisionPolicy`, or evidence records. It has no repository/entity access of its own.
 **Boundary rules (spec §12):** no "if score >= threshold" style logic anywhere in TS; decision badges render the backend's decision verbatim; policy-lab thresholds are only validated for the form contract (`0 < review < block < 1`) before being sent — never used to decide; every simulation/counterfactual is labelled SIMULATED/COUNTERFACTUAL and carries the hypothetical disclaimer; actual vs hypothetical artifacts are visually distinct (Stamp components); absence of factors/rules/evidence is rendered as an explicit empty state, never as a safety claim.
 
+## 21. AI Investigator Domain (Phase 6)
+**Packages:** `com.sentinelflow.ai` (`prompt`, `gateway`, `tool`, `validation`, `config`, `model`, `repo`, `service`, `dto`, `exception`)
+**Responsibility:** answer structured and free-form analyst questions about an already-decided transaction using **only the evidence already persisted** for that decision. It is a read-only assistant that never evaluates a policy, never scores a transaction, never mutates a decision, and never sits on the transaction critical path. Disabled by default; no provider, key, or model bean exists until explicitly enabled.
+**Owned:**
+- `AiInvestigationService` (orchestration: fail-fast when disabled → assemble kernel → budgeted generation → validation → audit)
+- `PromptAssembler` (immutable system prompt: evidence taxonomy FACT/INFERENCE/HYPOTHESIS/UNKNOWN, authority hierarchy, "never decide" rules, untrusted-data containment)
+- `AiGateway` / `SpringAiGateway` (provider boundary; failure classification)
+- `InvestigationAiTools` / `ToolCallBudget` / `ToolViews` (read-only model surface, per-request budget, toolbar JSON views)
+- `ExplanationValidator` (semantic backstop: evidence IDs resolve to the persisted graph; decision/score/policy match the persisted record; action-language rejected; hypothetical disclaimers mandatory)
+- `AiInvestigationRun` (+ `ai_investigation_runs` Flyway V12) — append-only audit trail of every attempt, success and failure
+- API: `AiInvestigationController.explain` / `runs`; AI exception codes `AI_UNAVAILABLE` (503) / `AI_RESPONSE_INVALID` (502) in `ApiExceptionHandler`
+**Depends on (read-only through `InvestigationApplicationService`):** investigation context, decision replay, evidence graph, policy simulations, counterfactuals.
+**Does NOT Own:** decision evaluation, policy evaluation, risk scoring, rule engine, ML inference, evidence creation, Kafka, transaction processing — and it cannot mutate any production record; its only write is its own audit table.
+**Boundary rules:** the model is restricted to read-only tools whose outputs are validated before being surfaced; tool budget exhaustion or validation rejection yields a FAILED audit run and 502, never a partial answer; free-form questions are treated as untrusted data in the user segment; the OpenAI provider auto-configurations are excluded so boot requires no API key; production boot with `enabled=false` is byte-for-byte the Phase 5 application.
+
 ---
 
-## Ownership Summary (Phase 2-4)
+## Ownership Summary (Phase 2-5)
 
 | Domain | Owns | Does NOT Own |
 |--------|------|--------------|
@@ -342,6 +359,8 @@ transaction ◄── merchant (internal)
 | Pipeline | Orchestration | Domain logic |
 | Analytics (P4) | Replay, simulation, counterfactual artifacts | Production decisions, policy, mutation |
 | Investigation App (P4) | Read-only analytical workflow | Transaction/decision mutation |
+| Frontend (P5) | Presentation contract | Any risk/decision/policy logic |
+| AI Investigator (P6) | Evidence-grounded explanation + audit trail | Decisions, policy, scoring, mutation |
 
 **Critical Separations:**
 - ML does not own final decisions
@@ -384,5 +403,14 @@ transaction ◄── merchant (internal)
 | 5 | `TransactionOverview` (`com.sentinelflow.transaction.dto`) | Transaction | **implemented** |
 | 5 | `TransactionProcessController` (`com.sentinelflow.api`) | Pipeline (thin facade) | **implemented** |
 | 5 | `CounterfactualController.features` | CounterfactualFeatureRegistry | **implemented** |
+
+## Phase 6 Extensions
+
+| Phase | New Module | Integrates With | Status |
+|-------|------------|-----------------|--------|
+| 6 | `ai` (prompt/gateway/tool/validation/service) | Investigation app context, evidence graph, decision replay, policy lab, counterfactuals (read-only) | **implemented** |
+| 6 | `ai_investigation_runs` (Flyway V12) | Investigations (ON DELETE CASCADE) | **implemented** |
+| 6 | `AiInvestigationController` (`com.sentinelflow.api`) | `AiInvestigationService` | **implemented** |
+| 6 | `AiInvestigationPanel` (`frontend/src/components/ai`) | `investigationsApi.explain` / `explanationRuns` | **implemented** |
 
 Each new module follows the same pattern: own entities, repositories, service layer, clear boundaries.

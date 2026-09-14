@@ -282,3 +282,138 @@ export interface PipelineResult {
   pipelineStartTimestamp: string
   pipelineEndTimestamp: string
 }
+
+/**
+ * AI investigator (Phase 6). Every factual claim that references SentinelFlow
+ * data carries evidenceIds that resolve to persisted evidence nodes; the
+ * backend validates this before anything is returned here.
+ */
+export type InvestigationRequestType =
+  | 'WHY_FLAGGED'
+  | 'SUMMARIZE'
+  | 'RISK_FACTORS'
+  | 'CONFLICTS'
+  | 'BEHAVIORAL'
+  | 'NEXT_EVIDENCE'
+  | 'FREE_FORM'
+
+export interface InvestigationExplanationRequest {
+  requestType: InvestigationRequestType
+  /** Only allowed for FREE_FORM; the backend rejects it otherwise. */
+  freeFormQuestion?: string | null
+}
+
+export interface InvestigationExplanationObservation {
+  statement: string
+  evidenceIds: string[]
+}
+
+export interface InvestigationExplanationRiskAssessment {
+  recordedRiskScore: number
+  recordedDecision: string
+  decisionPolicy: string | null
+  explanation: string
+  evidenceIds: string[]
+}
+
+export interface InvestigationExplanationFinding {
+  statement: string
+  evidenceIds: string[]
+}
+
+export interface InvestigationExplanationRuleFinding {
+  ruleId: string
+  statement: string
+  outcome: string
+  evidenceIds: string[]
+}
+
+export interface InvestigationExplanationEvidenceConflict {
+  description: string
+  evidenceIds: string[]
+}
+
+export interface InvestigationExplanationCounterfactual {
+  analysisId: string
+  feature: string
+  recordedValue: unknown
+  hypotheticalValue: unknown
+  recordedScore: number
+  hypotheticalScore: number
+  hypotheticalDecision: string
+  statement: string
+  disclaimer: string
+  evidenceIds: string[]
+}
+
+export interface InvestigationExplanationSimulation {
+  simulationId: string
+  hypotheticalPolicyName: string
+  hypotheticalPolicyVersion: string
+  simulatedDecision: string
+  statement: string
+  disclaimer: string
+  evidenceIds: string[]
+}
+
+export interface InvestigationExplanationUncertainty {
+  statement: string
+  reason: string
+}
+
+export interface InvestigationExplanationRecommendedEvidence {
+  request: string
+  rationale: string
+}
+
+export interface InvestigationExplanationEvidenceReference {
+  evidenceId: string
+  sourceType: string
+  sourceId: string
+  description: string
+}
+
+export interface InvestigationExplanationModelMetadata {
+  provider: string
+  model: string
+  toolCallCount: number
+  correlationId: string
+}
+
+export interface InvestigationExplanation {
+  investigationId: string
+  transactionReference: string
+  requestType: InvestigationRequestType
+  summary: string
+  observations: InvestigationExplanationObservation[]
+  riskAssessment: InvestigationExplanationRiskAssessment
+  modelFindings: InvestigationExplanationFinding[]
+  ruleFindings: InvestigationExplanationRuleFinding[]
+  behavioralFindings: InvestigationExplanationFinding[]
+  evidenceConflicts: InvestigationExplanationEvidenceConflict[]
+  simulations: InvestigationExplanationSimulation[]
+  counterfactuals: InvestigationExplanationCounterfactual[]
+  uncertainty: InvestigationExplanationUncertainty[]
+  recommendedNextEvidence: InvestigationExplanationRecommendedEvidence[]
+  evidenceReferences: InvestigationExplanationEvidenceReference[]
+  generatedAt: string
+  modelMetadata: InvestigationExplanationModelMetadata
+}
+
+/** Immutable audit trail of one AI investigation run. */
+export interface AiInvestigationRun {
+  id: string
+  investigationId: string
+  requestType: InvestigationRequestType
+  freeFormQuestion: string | null
+  status: 'SUCCEEDED' | 'FAILED'
+  provider: string | null
+  model: string | null
+  toolCallCount: number
+  latencyMs: number | null
+  correlationId: string | null
+  response: InvestigationExplanation | null
+  errorCode: string | null
+  errorMessage: string | null
+  createdAt: string
+}

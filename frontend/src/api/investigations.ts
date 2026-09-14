@@ -1,9 +1,12 @@
 import { get, post } from './client'
 import type {
   AddInvestigationEventRequest,
+  AiInvestigationRun,
   CreateInvestigationRequest,
   DecisionReplay,
   EvidenceGraph,
+  InvestigationExplanation,
+  InvestigationExplanationRequest,
   InvestigationMetadata,
   InvestigationSummary,
   TimelineEntry,
@@ -43,5 +46,13 @@ export const investigationsApi = {
 
   replay(id: string): Promise<DecisionReplay> {
     return get<DecisionReplay>(`/api/investigations/${encodeURIComponent(id)}/decision-replay`)
+  },
+
+  explain(id: string, body: InvestigationExplanationRequest): Promise<InvestigationExplanation> {
+    return post<InvestigationExplanation>(`/api/investigations/${encodeURIComponent(id)}/explanations`, body)
+  },
+
+  explanationRuns(id: string): Promise<AiInvestigationRun[]> {
+    return get<AiInvestigationRun[]>(`/api/investigations/${encodeURIComponent(id)}/explanations/runs`)
   },
 }

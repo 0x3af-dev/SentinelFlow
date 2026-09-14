@@ -21,6 +21,7 @@ import { EvidenceLineage } from '@/components/evidence/EvidenceLineage'
 import { InvestigationTimeline } from '@/components/timeline/InvestigationTimeline'
 import { PolicyLabPanel } from '@/components/lab/PolicyLabPanel'
 import { CounterfactualPanel } from '@/components/lab/CounterfactualPanel'
+import { AiInvestigationPanel } from '@/components/ai/AiInvestigationPanel'
 import { AddEventNote } from '@/components/investigation/AddEventNote'
 
 interface InvestigationLoaded {
@@ -162,6 +163,12 @@ export function InvestigationPage() {
             recordedFeatures={replay.featureSnapshot.features}
           />
         </div>
+
+        <AiInvestigationPanel
+          investigationId={decoded}
+          transactionReference={summary.transactionReference}
+          evidenceNodeIds={evidence.nodes.map((node) => node.id)}
+        />
 
         <div className="border-t border-ink-800 pt-1">
           <AddEventNote investigationId={decoded} onAdded={() => void refetchTimeline()} />

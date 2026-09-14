@@ -32,8 +32,23 @@ export class ApiNetworkError extends Error {
 /** Human-friendly headline mapping for the most common codes. */
 export function describeError(error: unknown): { title: string; detail: string } {
   if (error instanceof ApiRequestError) {
+    if (error.code === 'AI_UNAVAILABLE') {
+      return {
+        title: 'AI investigator unavailable',
+        detail:
+          'The AI investigation capability is disabled or its provider could not be reached. No explanation was produced, and the persisted decision is unchanged.',
+      }
+    }
+    if (error.code === 'AI_RESPONSE_INVALID') {
+      return {
+        title: 'AI response rejected',
+        detail:
+          'The model did not answer within the evidence rules and the response was rejected before anything could be shown. Retry, or ask a more targeted question.',
+      }
+    }
     if (error.status === 404) return { title: 'Not found', detail: error.message }
     if (error.status === 400) return { title: 'Invalid request', detail: error.message }
+    if (error.status === 502) return { title: 'Upstream service error', detail: error.message }
     if (error.status === 503) {
       return {
         title: 'Model service unavailable',

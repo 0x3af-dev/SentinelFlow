@@ -1,7 +1,9 @@
 import type {
+  AiInvestigationRun,
   CounterfactualResponse,
   DecisionReplay,
   Decision,
+  InvestigationExplanation,
   InvestigationMetadata,
   InvestigationSummary,
   PolicySimulationResponse,
@@ -200,6 +202,70 @@ export const timelineEventFixture = (overrides: Partial<TimelineEntry> = {}): Ti
   actorReference: 'analyst-1',
   eventTimestamp: '2026-09-14T10:20:00Z',
   payload: { note: 'Amount pattern consistent with browser fraud reports.' },
+  ...overrides,
+})
+
+const explanationBase = {
+  investigationId: '00000000-0000-0000-0000-000000000001',
+  transactionReference: 'txn-demo-001',
+  requestType: 'SUMMARIZE' as const,
+  summary: 'The transaction was scored 0.60 and the persisted decision is REVIEW.',
+  generatedAt: '2026-09-14T11:00:00Z',
+  modelMetadata: {
+    provider: 'test-provider',
+    model: 'test-model',
+    toolCallCount: 4,
+    correlationId: 'corr-1',
+  },
+  recommendedNextEvidence: [],
+  simulations: [],
+  counterfactuals: [],
+  uncertainty: [],
+  evidenceConflicts: [],
+  evidenceReferences: [],
+}
+
+export const investigationExplanationFixture = (
+  overrides: Partial<InvestigationExplanation> = {},
+): InvestigationExplanation => ({
+  ...explanationBase,
+  observations: [
+    { statement: 'Risk score is elevated.', evidenceIds: ['node-1'] },
+  ],
+  riskAssessment: {
+    recordedRiskScore: 0.6,
+    recordedDecision: 'REVIEW',
+    decisionPolicy: 'fraud-policy/v1',
+    explanation: 'Persisted policy maps this score to REVIEW.',
+    evidenceIds: ['node-2'],
+  },
+  modelFindings: [
+    { statement: 'Model assigned elevated risk.', evidenceIds: ['node-1'] },
+  ],
+  ruleFindings: [
+    { statement: 'Large amount review triggered.', outcome: 'TRIGGERED', ruleId: 'large_amount_review', evidenceIds: ['node-1'] },
+  ],
+  behavioralFindings: [],
+  ...overrides,
+})
+
+export const aiInvestigationRunFixture = (
+  overrides: Partial<AiInvestigationRun> = {},
+): AiInvestigationRun => ({
+  id: 'run-1',
+  investigationId: '00000000-0000-0000-0000-000000000001',
+  requestType: 'SUMMARIZE',
+  freeFormQuestion: null,
+  status: 'SUCCEEDED',
+  provider: 'test-provider',
+  model: 'test-model',
+  toolCallCount: 4,
+  latencyMs: 320,
+  correlationId: 'corr-1',
+  response: investigationExplanationFixture(),
+  errorCode: null,
+  errorMessage: null,
+  createdAt: '2026-09-14T11:00:00Z',
   ...overrides,
 })
 
