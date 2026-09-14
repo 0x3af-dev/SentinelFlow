@@ -4,6 +4,7 @@ This document defines the ownership boundaries between modules in the modular mo
 
 **Phase 2 adds:** enrichment, feature, ml, rule, policy, pipeline, evidence service boundaries (see below).
 **Phase 3 adds:** Kafka messaging/outbox boundary (§17) — transport only, no business logic.
+**Phase 4 adds:** analytics (replay, policy lab, counterfactual, disagreement, evidence graph) + read-only investigation application boundary (§18, §19).
 
 ---
 
@@ -109,7 +110,7 @@ Decision policies and final risk decisions. Connects risk output to business act
 
 ### Does NOT Own
 - Rule engine (Phase 2)
-- Policy simulation/lab (Phase 3)
+- Policy simulation/lab (implemented Phase 4 in `analytics.policy` — read-only replica, never evaluates production policy)
 - ML model selection (Risk domain)
 
 ---
@@ -160,10 +161,11 @@ Human investigation workflow — cases, events, audit trail.
 - **Referenced by:** Evidence (INVESTIGATION node_type)
 
 ### Does NOT Own
-- Investigation UI (Phase 2 React)
-- Case assignment rules (Phase 3)
-- Analyst workload management (Phase 3)
+- Investigation UI (future)
+- Case assignment rules (future)
+- Analyst workload management (future)
 - Authentication/authorization (future security phase)
+- Analytical composition/read-only application service (implemented Phase 4 in `com.sentinelflow.investigation.service`)
 
 ---
 
@@ -194,8 +196,8 @@ Policy version registry and configuration.
 - `DecisionPolicy`
 
 ### Does NOT Own
-- Policy authoring UI (Phase 3 Policy Lab)
-- Policy simulation (Phase 3)
+- Policy authoring UI (future)
+- Policy simulation (implemented Phase 4 in `analytics.policy`)
 - Rule definitions (Phase 2 — separate from policy config)
 
 ---
@@ -296,9 +298,29 @@ transaction ◄── merchant (internal)
 **Does NOT Own:** Risk scoring, rules, policy, decisions, evidence creation — everything it triggers lives in the Phase 2 pipeline. Kafka seeks are never the source of truth; the attempts/outbox tables are.
 **Boundary rule:** Consumers must never mutate domain entities directly; all business effects go through the pipeline.
 
+## 18. Analytics Domain (Phase 4)
+**Packages:** `com.sentinelflow.analytics` (`replay`, `policy`, `counterfactual`, `dto`, `exception`, `shared`, `model`)
+**Responsibility:** Read-only decision analytics layered over the Phase 1–3 record: decision replay, policy what-if simulation, counterfactual feature what-if (re-scored via the ML client, hypothetical only), model-vs-rule disagreement classification, and bounded evidence graph reads. Analysis **never** mutates production records and **never** evaluates or modifies the production policy.
+**Owned:**
+- `PolicySimulation`, `CounterfactualAnalysis` entities + repos (append-only, tables `policy_simulations`, `counterfactual_analyses`, Flyway V10)
+- `PolicyLabService` (simulate + batch), `CounterfactualService`, `DecisionReplayService`, `EvidenceGraphCollector`, `ThresholdDecision` (read-only replica of production policy semantics), `DisagreementInfo.of` (classification)
+- `CounterfactualFeatureRegistry` (bounded numeric feature whitelist for edits)
+- API: `DecisionReplayController`, `PolicyLabController`, `CounterfactualController`, `ApiExceptionHandler`
+**Depends on (read-only):** decision, risk, evidence, transaction, investigation (event hook), `MlInferenceClient` (counterfactual re-score)
+**Does NOT Own:** production decision evaluation, production policy, rule engine, Kafka, anything that writes outside its two append-only tables
+**Boundary rules:** ML call never wrapped in a DB transaction; `simulateBatch`/`list` never hold long transactions; no causal claims (counterfactual responses carry an explicit hypothetical disclaimer); simulation threshold validation (`0 < review < block < 1`) enforced before any work.
+
+## 19. Investigation Application Domain (Phase 4)
+**Packages:** `com.sentinelflow.investigation.service`
+**Responsibility:** read-only, analysis-forward workflow facade over the Investigation domain — create investigations and compose their analytical context (decision replay, evidence, simulations, counterfactuals, disagreement) into `InvestigationSummary`, plus an append-only event timeline.
+**Owned:** `InvestigationApplicationService`, `InvestigationEventPublisher` (+ `InvestigationController` in `com.sentinelflow.api`)
+**Depends on:** Investigation domain entities (read/write of investigations only), Analytics (read-only)
+**Does NOT Own:** investigation entity mutations authored by analysts with side effects on transactions — it never touches `Transaction`, `DecisionRecord`, `RiskScore`, `FeatureSnapshot`, or evidence.
+**Boundary rule:** analyst events are append-only entries on `investigation_events`; analytical artifacts attach to investigations only when they belong to the investigation's transaction.
+
 ---
 
-## Ownership Summary (Phase 2-3)
+## Ownership Summary (Phase 2-4)
 
 | Domain | Owns | Does NOT Own |
 |--------|------|--------------|
@@ -309,6 +331,8 @@ transaction ◄── merchant (internal)
 | Policy | Business action | Model, rules |
 | Evidence | Explanation/traceability | Decision |
 | Pipeline | Orchestration | Domain logic |
+| Analytics (P4) | Replay, simulation, counterfactual artifacts | Production decisions, policy, mutation |
+| Investigation App (P4) | Read-only analytical workflow | Transaction/decision mutation |
 
 **Critical Separations:**
 - ML does not own final decisions
@@ -331,10 +355,16 @@ transaction ◄── merchant (internal)
 
 | Phase | New Module | Integrates With | Status |
 |-------|------------|-----------------|--------|
-| 3 | `policy-lab` | Decision (DecisionPolicy) | planned |
-| 3 | `investigation-ui` | Investigation, Evidence | planned |
-| 3 | `counterfactual` | Risk (FeatureSnapshot), Decision | planned |
-| 3 | `simulation` | Decision, Risk, Transaction | planned |
 | 3 | `kafka` | Pipeline (transport, not logic) | **implemented** |
+
+## Phase 4 Extensions
+
+| Phase | New Module | Integrates With | Status |
+|-------|------------|-----------------|--------|
+| 4 | `analytics.replay` (incl. evidence graph collector + `DisagreementInfo`) | Decision, Risk, Evidence, Transaction | **implemented** |
+| 4 | `analytics.policy` (Policy Lab) | Decision (DecisionRecord), Risk (FeatureSnapshot/RiskScore) | **implemented** |
+| 4 | `analytics.counterfactual` | Risk (FeatureSnapshot/RiskScore), Decision, ML client | **implemented** |
+| 4 | `investigation.service` (application facade) | Investigation, all analytics | **implemented** |
+| 4 | `policy-lab` UI / `investigation-ui` UI (Phase 3 doc) | — | **not built (roadmap: frontend skipped)** |
 
 Each new module follows the same pattern: own entities, repositories, service layer, clear boundaries.
