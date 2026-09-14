@@ -2,6 +2,7 @@ package com.sentinelflow.kafka;
 
 import com.sentinelflow.kafka.attempt.KafkaProcessingAttempt;
 import com.sentinelflow.kafka.attempt.KafkaProcessingAttemptRepository;
+import com.sentinelflow.metrics.SentinelFlowMetrics;
 import com.sentinelflow.ml.MlInferenceClient;
 import com.sentinelflow.pipeline.TransactionIntelligencePipeline;
 import com.sentinelflow.transaction.TransactionRepository;
@@ -34,13 +35,16 @@ public class TransactionEventProcessor {
     private final KafkaProcessingAttemptRepository attemptRepository;
     private final TransactionRepository transactionRepository;
     private final TransactionIntelligencePipeline pipeline;
+    private final SentinelFlowMetrics metrics;
 
     public TransactionEventProcessor(KafkaProcessingAttemptRepository attemptRepository,
                                      TransactionRepository transactionRepository,
-                                     TransactionIntelligencePipeline pipeline) {
+                                     TransactionIntelligencePipeline pipeline,
+                                     SentinelFlowMetrics metrics) {
         this.attemptRepository = attemptRepository;
         this.transactionRepository = transactionRepository;
         this.pipeline = pipeline;
+        this.metrics = metrics;
     }
 
     public enum ProcessingOutcome {
@@ -50,6 +54,23 @@ public class TransactionEventProcessor {
     public record ProcessingResult(ProcessingOutcome outcome, String reason, String eventId) {}
 
     public ProcessingResult process(TransactionProcessingEvent event) {
+        metrics.kafkaConsumed();
+        var sample = metrics.kafkaProcessingSample();
+        try {
+            ProcessingResult result = processInternal(event);
+            switch (result.outcome()) {
+                case SUCCEEDED -> metrics.kafkaSucceeded();
+                case DUPLICATE -> metrics.kafkaDuplicate();
+                case RETRYABLE_FAILURE -> metrics.kafkaRetryable();
+                case PERMANENT_FAILURE -> metrics.kafkaPermanent();
+            }
+            return result;
+        } finally {
+            metrics.stopKafkaProcessing(sample);
+        }
+    }
+
+    public ProcessingResult processInternal(TransactionProcessingEvent event) {
         String eventId = event != null ? event.eventId() : "null";
         String correlationId = event != null ? event.correlationId() : "null";
         String transactionReference = event != null ? event.transactionReference() : "null";
@@ -132,6 +153,7 @@ public class TransactionEventProcessor {
                 log.warn("Exhausted {} retries eventId={} error={} -> dead lettering", MAX_RETRIES, eventId, msg);
                 attempt.setStatus(KafkaProcessingAttempt.AttemptStatus.DEAD_LETTERED);
                 attemptRepository.saveAndFlush(attempt);
+                metrics.kafkaDeadLettered();
                 return new ProcessingResult(ProcessingOutcome.PERMANENT_FAILURE, "max retries exceeded: " + msg, eventId);
             }
             log.warn("Retryable failure attempt={}/{} eventId={} error={}", attempt.getAttemptCount(), MAX_RETRIES, eventId, msg);

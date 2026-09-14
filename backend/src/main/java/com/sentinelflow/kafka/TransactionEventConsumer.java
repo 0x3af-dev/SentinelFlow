@@ -1,5 +1,7 @@
 package com.sentinelflow.kafka;
 
+import com.sentinelflow.metrics.SentinelFlowMetrics;
+import com.sentinelflow.observability.Md;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,15 +26,18 @@ public class TransactionEventConsumer {
 
     private final TransactionEventProcessor processor;
     private final KafkaTemplate<String, TransactionProcessingEvent> kafkaTemplate;
+    private final SentinelFlowMetrics metrics;
     private final String dlqTopic;
     private final String retryTopic;
 
     public TransactionEventConsumer(TransactionEventProcessor processor,
                                     KafkaTemplate<String, TransactionProcessingEvent> kafkaTemplate,
+                                    SentinelFlowMetrics metrics,
                                     @Value("${sentinelflow.kafka.topic.dlq:" + KafkaTopics.TRANSACTION_PROCESS_DLQ + "}") String dlqTopic,
                                     @Value("${sentinelflow.kafka.topic.retry:" + KafkaTopics.TRANSACTION_PROCESS_RETRY + "}") String retryTopic) {
         this.processor = processor;
         this.kafkaTemplate = kafkaTemplate;
+        this.metrics = metrics;
         this.dlqTopic = dlqTopic;
         this.retryTopic = retryTopic;
     }
@@ -66,37 +71,40 @@ public class TransactionEventConsumer {
     private void handle(TransactionProcessingEvent event, Acknowledgment ack) {
         String eventId = event.eventId();
         String txnRef = event.transactionReference();
-        log.info("Consumer received eventId={} transactionReference={} correlationId={}",
-                eventId, txnRef, event.correlationId());
+        Md.run(Md.of(Md.OP_KAFKA_PROCESS, event.correlationId(), txnRef, eventId, null), () -> {
+            log.info("Consumer received eventId={} transactionReference={} correlationId={}",
+                    eventId, txnRef, event.correlationId());
 
-        TransactionEventProcessor.ProcessingResult result = processor.process(event);
+            TransactionEventProcessor.ProcessingResult result = processor.process(event);
 
-        switch (result.outcome()) {
-            case SUCCEEDED, DUPLICATE -> {
-                log.info("Acking eventId={} outcome={}", eventId, result.outcome());
-                ack.acknowledge();
-            }
-            case PERMANENT_FAILURE -> {
-                log.warn("Permanent failure eventId={} reason={} -> DLQ {}", eventId, result.reason(), dlqTopic);
-                try {
-                    kafkaTemplate.send(dlqTopic, txnRef, event).get();
+            switch (result.outcome()) {
+                case SUCCEEDED, DUPLICATE -> {
+                    log.info("Acking eventId={} outcome={}", eventId, result.outcome());
                     ack.acknowledge();
-                } catch (Exception e) {
-                    log.error("Failed to publish DLQ eventId={} error={}", eventId, e.getMessage());
-                    throw new RoutingException("DLQ publish failed: " + result.reason(), e);
+                }
+                case PERMANENT_FAILURE -> {
+                    log.warn("Permanent failure eventId={} reason={} -> DLQ {}", eventId, result.reason(), dlqTopic);
+                    metrics.kafkaDeadLettered();
+                    try {
+                        kafkaTemplate.send(dlqTopic, txnRef, event).get();
+                        ack.acknowledge();
+                    } catch (Exception e) {
+                        log.error("Failed to publish DLQ eventId={} error={}", eventId, e.getMessage());
+                        throw new RoutingException("DLQ publish failed: " + result.reason(), e);
+                    }
+                }
+                case RETRYABLE_FAILURE -> {
+                    log.warn("Retryable failure eventId={} attemptReason={} -> retry topic {}", eventId, result.reason(), retryTopic);
+                    try {
+                        kafkaTemplate.send(retryTopic, txnRef, event).get();
+                        ack.acknowledge();
+                    } catch (Exception e) {
+                        log.error("Failed to publish retry topic eventId={} error={}", eventId, e.getMessage());
+                        throw new RoutingException("Retry publish failed: " + result.reason(), e);
+                    }
                 }
             }
-            case RETRYABLE_FAILURE -> {
-                log.warn("Retryable failure eventId={} attemptReason={} -> retry topic {}", eventId, result.reason(), retryTopic);
-                try {
-                    kafkaTemplate.send(retryTopic, txnRef, event).get();
-                    ack.acknowledge();
-                } catch (Exception e) {
-                    log.error("Failed to publish retry topic eventId={} error={}", eventId, e.getMessage());
-                    throw new RoutingException("Retry publish failed: " + result.reason(), e);
-                }
-            }
-        }
+        });
     }
 
     static class RoutingException extends RuntimeException {

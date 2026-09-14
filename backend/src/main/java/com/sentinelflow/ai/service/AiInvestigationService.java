@@ -20,6 +20,8 @@ import com.sentinelflow.analytics.dto.DecisionReplayResponse;
 import com.sentinelflow.analytics.dto.InvestigationSummary;
 import com.sentinelflow.analytics.dto.TimelineEntry;
 import com.sentinelflow.investigation.service.InvestigationApplicationService;
+import com.sentinelflow.metrics.SentinelFlowMetrics;
+import com.sentinelflow.observability.Md;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -48,6 +50,7 @@ public class AiInvestigationService {
     private final InvestigationApplicationService investigationService;
     private final ToolCallBudget toolCallBudget;
     private final ObjectMapper objectMapper;
+    private final SentinelFlowMetrics metrics;
 
     public AiInvestigationService(
             AiProperties properties,
@@ -58,7 +61,8 @@ public class AiInvestigationService {
             AiInvestigationRunRepository runRepository,
             InvestigationApplicationService investigationService,
             ToolCallBudget toolCallBudget,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            SentinelFlowMetrics metrics) {
         this.properties = properties;
         this.gatewayProvider = gatewayProvider;
         this.tools = tools;
@@ -68,10 +72,27 @@ public class AiInvestigationService {
         this.investigationService = investigationService;
         this.toolCallBudget = toolCallBudget;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
     }
 
     public InvestigationExplanation explain(UUID investigationId, InvestigationExplanationRequest request) {
+        metrics.aiRequested();
         requireEnabled();
+        long started = System.nanoTime();
+        String correlationId = UUID.randomUUID().toString();
+        return Md.run(Md.of(Md.OP_AI, correlationId, null, null, investigationId.toString()), () -> {
+            try {
+                return doExplain(investigationId, request, correlationId, started);
+            } catch (RuntimeException failure) {
+                String code = persistFailure(investigationId, request, correlationId, started, failure);
+                metrics.aiFailed(code, System.nanoTime() - started);
+                throw translate(failure);
+            }
+        });
+    }
+
+    private InvestigationExplanation doExplain(UUID investigationId, InvestigationExplanationRequest request,
+                                               String correlationId, long started) {
         // Fails fast with a 404 when the investigation does not exist: a
         // non-existent transaction can never reach the model provider.
         InvestigationSummary summary = investigationService.summary(investigationId);
@@ -79,43 +100,41 @@ public class AiInvestigationService {
         DecisionReplayResponse replay = investigationService.decisionReplay(investigationId);
         ExplanationValidator.AllowedArtifacts allowed = allowGrounding(replay, summary);
 
-        String correlationId = UUID.randomUUID().toString();
-        long started = System.nanoTime();
+        AiGateway gateway = requireGateway();
+        InvestigationExplanation answer;
+        toolCallBudget.begin();
         try {
-            AiGateway gateway = requireGateway();
-            InvestigationExplanation answer;
-            toolCallBudget.begin();
-            try {
-                PromptAssembler.PromptBundle prompt = promptAssembler.assemble(
-                        new PromptAssembler.KernelContext(
-                                summary, timeline, replay.policy(), request.requestType(), request.freeFormQuestion()));
-                answer = gateway.generate(
-                        new AiGateway.GenerationRequest(prompt.systemPrompt(), prompt.userQuestion(), tools));
-            } finally {
-                // Always closes the budget for this request, even on failure.
-                toolCallBudget.end();
-            }
-
-            ExplanationValidator.ValidationResult validation = validator.validate(answer, allowed);
-            if (!validation.valid()) {
-                throw new AiResponseInvalidException(
-                        "AI response failed validation: " + String.join("; ", validation.violations()));
-            }
-            persistSuccess(investigationId, request, correlationId, started, gateway, answer);
-            return answer;
-        } catch (RuntimeException failure) {
-            persistFailure(investigationId, request, correlationId, started, failure);
-            if (failure instanceof AiProviderResponseException e) {
-                throw new AiResponseInvalidException(e.getMessage(), e);
-            }
-            if (failure instanceof AiProviderUnavailableException e) {
-                throw new AiUnavailableException(e.getMessage(), e);
-            }
-            if (failure instanceof AiUnavailableException || failure instanceof AiResponseInvalidException) {
-                throw failure;
-            }
-            throw new AiUnavailableException("AI investigation failed unexpectedly", failure);
+            PromptAssembler.PromptBundle prompt = promptAssembler.assemble(
+                    new PromptAssembler.KernelContext(
+                            summary, timeline, replay.policy(), request.requestType(), request.freeFormQuestion()));
+            answer = gateway.generate(
+                    new AiGateway.GenerationRequest(prompt.systemPrompt(), prompt.userQuestion(), tools));
+        } finally {
+            // Always closes the budget for this request, even on failure.
+            toolCallBudget.end();
         }
+
+        ExplanationValidator.ValidationResult validation = validator.validate(answer, allowed);
+        if (!validation.valid()) {
+            throw new AiResponseInvalidException(
+                    "AI response failed validation: " + String.join("; ", validation.violations()));
+        }
+        persistSuccess(investigationId, request, correlationId, started, gateway, answer);
+        metrics.aiSucceeded(System.nanoTime() - started, toolCallBudget.currentTotal());
+        return answer;
+    }
+
+    private RuntimeException translate(RuntimeException failure) {
+        if (failure instanceof AiProviderResponseException e) {
+            return new AiResponseInvalidException(e.getMessage(), e);
+        }
+        if (failure instanceof AiProviderUnavailableException e) {
+            return new AiUnavailableException(e.getMessage(), e);
+        }
+        if (failure instanceof AiUnavailableException || failure instanceof AiResponseInvalidException) {
+            return failure;
+        }
+        return new AiUnavailableException("AI investigation failed unexpectedly", failure);
     }
 
     public List<AiInvestigationRun> runsFor(UUID investigationId) {
@@ -163,7 +182,7 @@ public class AiInvestigationService {
                 : replay.policy().name() + "/" + version;
     }
 
-    private void persistFailure(UUID investigationId, InvestigationExplanationRequest request, String correlationId,
+    private String persistFailure(UUID investigationId, InvestigationExplanationRequest request, String correlationId,
                                 long startedNanos, RuntimeException failure) {
         String code;
         String message;
@@ -184,6 +203,7 @@ public class AiInvestigationService {
             message = truncate(failure.getMessage());
         }
         logFailedRun(investigationId, request, correlationId, startedNanos, code, message);
+        return code;
     }
 
 private void persistSuccess(UUID investigationId, InvestigationExplanationRequest request, String correlationId,

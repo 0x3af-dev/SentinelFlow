@@ -4,6 +4,7 @@ import { LookupPage } from '@/pages/LookupPage'
 import { TransactionPage } from '@/pages/TransactionPage'
 import { InvestigationsPage } from '@/pages/InvestigationsPage'
 import { InvestigationPage } from '@/pages/InvestigationPage'
+import { SystemHealthPage } from '@/pages/SystemHealthPage'
 
 const router = createBrowserRouter([
   {
@@ -13,6 +14,7 @@ const router = createBrowserRouter([
       { path: '/transactions/:reference', element: <TransactionPage /> },
       { path: '/investigations', element: <InvestigationsPage /> },
       { path: '/investigations/:id', element: <InvestigationPage /> },
+      { path: '/system-health', element: <SystemHealthPage /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

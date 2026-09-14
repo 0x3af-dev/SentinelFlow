@@ -19,6 +19,7 @@
 
     <properties>
         <java.version>21</java.version>
+        <benchmark.excluded>benchmark</benchmark.excluded>
         <testcontainers.version>1.20.4</testcontainers.version>
         <spring-ai.version>1.1.8</spring-ai.version>
     </properties>
@@ -123,6 +124,17 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Performance baseline tests (long-running latency/capacity
+                         measurements) are excluded from the default suite; run them
+                         explicitly by clearing the group filter (e.g.
+                     -DexcludedGroups= -Dtest=PipelineLatencyBaselineTest). -->
+                    <excludedGroups>${benchmark.excluded}</excludedGroups>
+                </configuration>
             </plugin>
         </plugins>
     </build>

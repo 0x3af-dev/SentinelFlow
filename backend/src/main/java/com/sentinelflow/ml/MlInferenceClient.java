@@ -1,5 +1,7 @@
 package com.sentinelflow.ml;
 
+import com.sentinelflow.metrics.SentinelFlowMetrics;
+import com.sentinelflow.observability.Md;
 import com.sentinelflow.shared.dto.MlPrediction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,20 +28,38 @@ public class MlInferenceClient {
     private final Duration timeout;
     private final String expectedModelName;
     private final String expectedFeatureSchemaVersion;
+    private final SentinelFlowMetrics metrics;
 
     public MlInferenceClient(
             WebClient.Builder webClientBuilder,
             @Value("${ml.service.url:http://localhost:8001}") String mlServiceUrl,
             @Value("${ml.client.timeout:5000}") int timeoutMs,
             @Value("${ml.expected.model-name:risk-model}") String expectedModelName,
-            @Value("${ml.expected.feature-schema-version:fs-v1}") String expectedFeatureSchemaVersion) {
+            @Value("${ml.expected.feature-schema-version:fs-v1}") String expectedFeatureSchemaVersion,
+            SentinelFlowMetrics metrics) {
         this.webClient = webClientBuilder.baseUrl(mlServiceUrl).build();
         this.timeout = Duration.ofMillis(timeoutMs);
         this.expectedModelName = expectedModelName;
         this.expectedFeatureSchemaVersion = expectedFeatureSchemaVersion;
+        this.metrics = metrics;
     }
 
     public MlPrediction infer(MlInferenceRequest request) {
+        long startedNanos = System.nanoTime();
+        metrics.mlRequested();
+        return Md.run(Map.of(Md.OPERATION, Md.OP_ML, Md.STATUS, "running"), () -> {
+            try {
+                MlPrediction prediction = inferInternal(request);
+                metrics.mlSucceeded(System.nanoTime() - startedNanos);
+                return prediction;
+            } catch (MlInferenceException e) {
+                metrics.mlFailed(categoryOf(e), System.nanoTime() - startedNanos);
+                throw e;
+            }
+        });
+    }
+
+    private MlPrediction inferInternal(MlInferenceRequest request) {
         long startTime = System.currentTimeMillis();
         
         try {
@@ -133,5 +153,25 @@ public class MlInferenceClient {
         public MlInferenceException(String message, Throwable cause) {
             super(message, cause);
         }
+    }
+
+    /**
+     * Classifies an ML failure for the low-cardinality metric tag. Categories:
+     * TIMEOUT, HTTP, UNAVAILABLE, INVALID (malformed/identity mismatch), OTHER.
+     * Business semantics are deliberately not encoded here.
+     */
+    private static String categoryOf(MlInferenceException e) {
+        String message = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+        if (e.getCause() instanceof TimeoutException || message.contains("timeout")) return "TIMEOUT";
+        if (e.getCause() instanceof WebClientResponseException) return "HTTP";
+        if (message.contains("http error")) return "HTTP";
+        if (message.contains("null response") || message.contains("invalid ml response") || message.contains("mismatch")) {
+            return "INVALID";
+        }
+        if (message.contains("unavailable") || message.contains("503") || message.contains("connection refused")
+                || message.contains("connection")) {
+            return "UNAVAILABLE";
+        }
+        return "OTHER";
     }
 }

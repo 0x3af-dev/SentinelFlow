@@ -7,6 +7,8 @@ import com.sentinelflow.decision.service.DecisionService;
 import com.sentinelflow.enrichment.TransactionEnricher;
 import com.sentinelflow.evidence.service.EvidenceService;
 import com.sentinelflow.feature.FeatureComputationService;
+import com.sentinelflow.metrics.SentinelFlowMetrics;
+import com.sentinelflow.observability.Md;
 import com.sentinelflow.ml.MlInferenceClient;
 import com.sentinelflow.ml.MlInferenceRequest;
 import com.sentinelflow.policy.PolicyEvaluator;
@@ -26,6 +28,7 @@ import com.sentinelflow.transaction.TransactionRepository;
 import com.sentinelflow.transaction.TransactionStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,6 +54,7 @@ public class TransactionIntelligencePipeline {
     private final PolicyEvaluator policyEvaluator;
     private final DecisionService decisionService;
     private final EvidenceService evidenceService;
+    private final SentinelFlowMetrics metrics;
 
     public TransactionIntelligencePipeline(TransactionRepository transactionRepository,
                                            TransactionEnricher enricher,
@@ -61,7 +65,8 @@ public class TransactionIntelligencePipeline {
                                            RuleEngine ruleEngine,
                                            PolicyEvaluator policyEvaluator,
                                            DecisionService decisionService,
-                                           EvidenceService evidenceService) {
+                                           EvidenceService evidenceService,
+                                           SentinelFlowMetrics metrics) {
         this.transactionRepository = transactionRepository;
         this.enricher = enricher;
         this.featureComputation = featureComputation;
@@ -72,9 +77,30 @@ public class TransactionIntelligencePipeline {
         this.policyEvaluator = policyEvaluator;
         this.decisionService = decisionService;
         this.evidenceService = evidenceService;
+        this.metrics = metrics;
     }
 
     public PipelineResult process(String transactionReference) {
+        metrics.transactionProcessingStarted();
+        var sample = metrics.transactionProcessingSample();
+        return Md.run(Md.of(Md.OP_PIPELINE, null, transactionReference), () -> {
+            try {
+                PipelineResult result = processInternal(transactionReference);
+                metrics.transactionProcessingSucceeded(result.decision());
+                return result;
+            } catch (PipelineException e) {
+                metrics.transactionProcessingFailed(stageOf(e.getMessage()));
+                throw e;
+            } catch (Exception e) {
+                metrics.transactionProcessingFailed(infrastructureStage(e));
+                throw e;
+            } finally {
+                metrics.stopTransactionProcessing(sample);
+            }
+        });
+    }
+
+    private PipelineResult processInternal(String transactionReference) {
         Instant pipelineStart = Instant.now();
         log.info("Starting pipeline for transaction: {}", transactionReference);
 
@@ -212,6 +238,31 @@ public class TransactionIntelligencePipeline {
     private void updateTransactionStatus(Transaction transaction, TransactionStatus status) {
         transaction.setStatus(status);
         transactionRepository.saveAndFlush(transaction);
+    }
+
+    /**
+     * Maps a PipelineException to the pipeline stage that failed for metric
+     * tagging. Only this class produces these messages, so the prefix match is
+     * deterministic and single-sourced.
+     */
+    private static String stageOf(String message) {
+        if (message == null) return "PIPELINE";
+        if (message.startsWith("Transaction not found")) return "TRANSACTION_LOOKUP";
+        if (message.contains("Enrichment failed")) return "ENRICHMENT";
+        if (message.contains("Feature computation failed")) return "FEATURE_COMPUTATION";
+        if (message.contains("Feature snapshot persistence failed")) return "FEATURE_SNAPSHOT";
+        if (message.contains("ML inference failed")) return "ML_INFERENCE";
+        if (message.contains("Risk score persistence failed")) return "RISK_SCORE";
+        if (message.contains("Rule evaluation failed")) return "RULE_EVALUATION";
+        if (message.contains("Policy evaluation failed")) return "POLICY_EVALUATION";
+        if (message.contains("Decision persistence failed")) return "DECISION_PERSISTENCE";
+        return "PIPELINE";
+    }
+
+    /** Failures that escape a stage wrapper (e.g. database unavailable). */
+    private static String infrastructureStage(Exception e) {
+        if (e instanceof DataAccessException) return "DATABASE";
+        return "INFRASTRUCTURE";
     }
 
     public static class PipelineException extends RuntimeException {

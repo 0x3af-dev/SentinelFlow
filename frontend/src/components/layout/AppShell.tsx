@@ -37,6 +37,14 @@ export function AppShell() {
           >
             Investigations
           </NavLink>
+          <NavLink
+            to="/system-health"
+            className={({ isActive }) =>
+              `px-2 py-1.5 font-mono text-[13px] ${isActive ? 'bg-ink-800 text-ink-100' : 'text-ink-400 hover:text-ink-200'}`
+            }
+          >
+            System Health
+          </NavLink>
         </nav>
 
         <main className="min-w-0 flex-1 overflow-y-auto bg-ink-950">

@@ -65,10 +65,25 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,flyway
+        # metrics and flyway support operational debugging and verifiable Phase 7
+        # reporting; info is the static application metadata.
+        include: health,info,metrics,flyway
   endpoint:
     health:
       show-details: when-authorized
+    metrics:
+      enabled: true
+  health:
+    # Kafka is intentionally excluded from the aggregate health group: a Kafka
+    # outage must NOT flip the whole application's readiness DOWN, because the
+    # transaction API path does not depend on Kafka. Outbox/Kafka dependency
+    # status is surfaced via /api/operations/* instead.
+    kafka:
+      enabled: false
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
 
 ml:
   service:
@@ -112,6 +127,14 @@ sentinelflow:
     max-findings: ${AI_MAX_FINDINGS:20}
     max-evidence-references: ${AI_MAX_EVIDENCE_REFERENCES:100}
     max-recommended-evidence: ${AI_MAX_RECOMMENDED_EVIDENCE:10}
+  operations:
+    # Interval at which the scheduled gauges (outbox pending/failed, DLQ backlog)
+    # refresh their DB counts; independent of the TTL below.
+    backlog-interval-ms: ${OPERATIONS_BACKLOG_INTERVAL_MS:15000}
+    # Time-to-live for dependency probe results served to /api/operations/summary.
+    probe-ttl-ms: ${OPERATIONS_PROBE_TTL_MS:5000}
+    # Age after which a PROCESSING attempt is reported as stuck (read-only).
+    stuck-threshold-minutes: ${OPERATIONS_STUCK_THRESHOLD_MINUTES:15}
 
 logging:
   level:

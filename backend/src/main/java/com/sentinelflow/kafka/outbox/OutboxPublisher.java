@@ -3,6 +3,8 @@ package com.sentinelflow.kafka.outbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sentinelflow.kafka.KafkaTopics;
 import com.sentinelflow.kafka.TransactionProcessingEvent;
+import com.sentinelflow.metrics.SentinelFlowMetrics;
+import com.sentinelflow.observability.Md;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,15 +28,18 @@ public class OutboxPublisher {
     private final OutboxEventRepository repository;
     private final KafkaTemplate<String, TransactionProcessingEvent> kafkaTemplate;
     private final ObjectMapper objectMapper;
+    private final SentinelFlowMetrics metrics;
     private final String topic;
 
     public OutboxPublisher(OutboxEventRepository repository,
                            KafkaTemplate<String, TransactionProcessingEvent> kafkaTemplate,
                            ObjectMapper objectMapper,
+                           SentinelFlowMetrics metrics,
                            @Value("${sentinelflow.kafka.topic.transactions:" + KafkaTopics.TRANSACTION_PROCESS + "}") String topic) {
         this.repository = repository;
         this.kafkaTemplate = kafkaTemplate;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
         this.topic = topic;
     }
 
@@ -43,20 +48,29 @@ public class OutboxPublisher {
     public void publishPending() {
         List<OutboxEvent> pending = repository.findTop100ByStatusOrderByCreatedAtAsc(OutboxEvent.OutboxStatus.PENDING);
         for (OutboxEvent e : pending) {
-            try {
-                TransactionProcessingEvent event = mapToEvent(e);
-                kafkaTemplate.send(topic, e.getAggregateId(), event).get();
-                e.setStatus(OutboxEvent.OutboxStatus.PUBLISHED);
-                repository.save(e);
-                log.info("Outbox published eventId={} aggregateId={}", e.getId(), e.getAggregateId());
-            } catch (Exception ex) {
-                log.warn("Outbox publish failed id={} error={}", e.getId(), ex.getMessage());
-                e.incrementRetry();
-                if (e.getRetryCount() > 5) {
-                    e.setStatus(OutboxEvent.OutboxStatus.FAILED);
+            var sample = metrics.outboxPublishSample();
+            Md.run(Md.of(Md.OP_OUTBOX_PUBLISH, null, e.getAggregateId(), null, null), () -> {
+                try {
+                    TransactionProcessingEvent event = mapToEvent(e);
+                    kafkaTemplate.send(topic, e.getAggregateId(), event).get();
+                    e.setStatus(OutboxEvent.OutboxStatus.PUBLISHED);
+                    repository.save(e);
+                    metrics.outboxPublished();
+                    log.info("Outbox published eventId={} aggregateId={}", e.getId(), e.getAggregateId());
+                } catch (Exception ex) {
+                    log.warn("Outbox publish failed id={} error={}", e.getId(), ex.getMessage());
+                    e.incrementRetry();
+                    if (e.getRetryCount() > 5) {
+                        e.setStatus(OutboxEvent.OutboxStatus.FAILED);
+                        metrics.outboxFailed();
+                    } else {
+                        metrics.outboxRetried();
+                    }
+                    repository.save(e);
+                } finally {
+                    metrics.stopOutboxPublish(sample);
                 }
-                repository.save(e);
-            }
+            });
         }
     }
 

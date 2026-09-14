@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Structured operational logging (Phase 7). Every line renders the MDC
+         fields that SentinelFlow sets at operation boundaries (eventId,
+         correlationId, transactionReference, investigationId, operation, status,
+         durationMs, errorCode) as stable key=value pairs. The layout is
+         deliberately dependency-free single-line text so operators can flip to
+         a JSON encoder without changing application code. Do not log secrets:
+         MDC fields are low-cardinality identifiers and statuses only. -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} level=%level thread=%thread component=%logger{40} eventId=%X{eventId:-} correlationId=%X{correlationId:-} transactionReference=%X{transactionReference:-} investigationId=%X{investigationId:-} operation=%X{operation:-} status=%X{status:-} durationMs=%X{durationMs:-} errorCode=%X{errorCode:-} msg="%m"%ex</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
